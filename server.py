@@ -15,6 +15,7 @@ import threading
 
 app = Flask(__name__)
 
+# Shared reference — main.py sets this after scanning
 _device_stats_map = {}
 _meta = {"pulse_count": 0, "start_time": time.time()}
 
@@ -42,6 +43,22 @@ def stream():
                     headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
+# Custom labels set via the dashboard UI  { ip: label }
+_labels = {}
+
+@app.route("/label", methods=["POST"])
+def set_label():
+    from flask import request
+    data = request.get_json()
+    ip, label = data.get("ip"), data.get("label", "").strip()
+    if ip:
+        if label:
+            _labels[ip] = label
+        else:
+            _labels.pop(ip, None)
+    return {"ok": True}
+
+
 def build_payload():
     devices = []
     total_rtt = []
@@ -54,14 +71,16 @@ def build_payload():
             online += 1
             total_rtt.append(rtt)
         devices.append({
-            "ip": ip,
-            "mac": s.mac,
-            "rtt": round(rtt, 1) if rtt is not None else None,
-            "avg": round(avg, 1) if avg is not None else None,
-            "jitter": round(s.jitter, 1),
-            "loss": s.loss_percent,
-            "status": s.status,
-            "history": list(s.rtt_history),
+            "ip":       ip,
+            "mac":      s.mac,
+            "hostname": _labels.get(ip, s.hostname),
+            "vendor":   s.vendor,
+            "rtt":      round(rtt, 1) if rtt is not None else None,
+            "avg":      round(avg, 1) if avg is not None else None,
+            "jitter":   round(s.jitter, 1),
+            "loss":     s.loss_percent,
+            "status":   s.status,
+            "history":  list(s.rtt_history),
         })
 
     avg_rtt = round(sum(total_rtt) / len(total_rtt), 1) if total_rtt else 0
@@ -97,6 +116,10 @@ def run_server(host="0.0.0.0", port=5000):
     t.start()
     return t
 
+
+# ---------------------------------------------------------------------------
+# Dashboard HTML (single-file, no external dependencies except Google Fonts)
+# ---------------------------------------------------------------------------
 
 DASHBOARD_HTML = """<!DOCTYPE html>
 <html lang="en">
@@ -234,6 +257,15 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     font-size: 10px; color: rgba(0,255,65,.25);
   }
   .blink { animation: blink .8s step-end infinite; }
+
+  .label-cell { cursor: pointer; position: relative; }
+  .label-cell:hover .edit-icon { opacity: 1; }
+  .edit-icon { opacity: 0; font-size: 11px; margin-left: 6px; color: rgba(0,255,65,.45); transition: opacity .15s; }
+  .label-input {
+    background: transparent; border: none; border-bottom: 1px solid var(--green);
+    color: #7dffb3; font-family: var(--mono); font-size: 13px; font-weight: 700;
+    outline: none; width: 160px; padding: 0;
+  }
   @keyframes blink { 50% { opacity: 0; } }
 
   /* ── Connection error banner ───────────────────── */
@@ -292,8 +324,9 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     <table>
       <thead>
         <tr>
+          <th>HOSTNAME</th>
           <th>IP ADDRESS</th>
-          <th>MAC ADDRESS</th>
+          <th>VENDOR</th>
           <th class="r">LAST RTT</th>
           <th class="r">AVG RTT</th>
           <th class="r">JITTER</th>
@@ -359,8 +392,12 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       const rttVal = d.rtt !== null ? d.rtt.toFixed(1) : '—';
       const avgVal = d.avg !== null ? d.avg.toFixed(1) : '—';
       return `<tr>
-        <td class="ip">${d.ip}</td>
-        <td class="mac">${d.mac}</td>
+        <td class="ip label-cell" data-ip="${d.ip}" title="Click to rename">
+          <span class="label-text">${d.hostname !== d.ip ? d.hostname : d.ip}</span>
+          <span class="edit-icon">✎</span>
+        </td>
+        <td class="ip" style="font-size:11px;opacity:.7">${d.ip}</td>
+        <td style="color:rgba(0,255,65,.5);font-size:11px">${d.vendor}</td>
         <td class="r ${rc}">${rttVal}</td>
         <td class="r ${arc}">${avgVal}</td>
         <td class="r ${d.jitter > 20 ? 'poor' : d.jitter > 5 ? 'good' : 'ex'}">${d.jitter.toFixed(1)}</td>
@@ -395,6 +432,35 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     const rttBar = document.getElementById('b-rtt');
     rttBar.style.background = s.avg_rtt < 20 ? 'var(--green-bright)' : s.avg_rtt < 80 ? 'var(--yellow)' : s.avg_rtt < 150 ? 'var(--orange)' : 'var(--red)';
   }
+
+  // ── Inline label editor ─────────────────────────────
+  document.getElementById('device-table').addEventListener('click', e => {
+    const cell = e.target.closest('.label-cell');
+    if (!cell) return;
+    const ip = cell.dataset.ip;
+    const span = cell.querySelector('.label-text');
+    const current = span.textContent;
+    const input = document.createElement('input');
+    input.className = 'label-input';
+    input.value = current;
+    cell.innerHTML = '';
+    cell.appendChild(input);
+    input.focus();
+    input.select();
+
+    const save = () => {
+      const newLabel = input.value.trim() || current;
+      fetch('/label', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ip, label: newLabel})
+      });
+      cell.innerHTML = `<span class="label-text">${newLabel}</span><span class="edit-icon">✎</span>`;
+    };
+
+    input.addEventListener('blur', save);
+    input.addEventListener('keydown', e => { if (e.key === 'Enter') input.blur(); if (e.key === 'Escape') { input.value = current; input.blur(); } });
+  });
 
   // ── SSE connection ────────────────────────────────
   let errShown = false;

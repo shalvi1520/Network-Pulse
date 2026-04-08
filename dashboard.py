@@ -1,14 +1,3 @@
-"""
-dashboard.py - Live color-coded terminal heatmap using Rich library
-
-Color logic (RTT-based):
-  GREEN   < 20ms   → Excellent
-  YELLOW  20–80ms  → Good
-  ORANGE  80–150ms → Fair
-  RED     > 150ms  → Poor
-  GRAY             → Timeout / No reply
-"""
-
 from rich.console import Console
 from rich.table import Table
 from rich.live import Live
@@ -22,7 +11,6 @@ console = Console()
 
 
 def rtt_color(rtt):
-    """Return a Rich color string based on RTT value."""
     if rtt is None:
         return "dim white"
     if rtt < 20:
@@ -35,7 +23,6 @@ def rtt_color(rtt):
 
 
 def rtt_label(rtt):
-    """Human-readable quality label."""
     if rtt is None:
         return "TIMEOUT"
     if rtt < 20:
@@ -48,7 +35,6 @@ def rtt_label(rtt):
 
 
 def jitter_color(jitter):
-    """Color for jitter value."""
     if jitter < 5:
         return "bright_green"
     if jitter < 20:
@@ -57,10 +43,6 @@ def jitter_color(jitter):
 
 
 def make_mini_graph(history, width=10):
-    """
-    Draw a tiny ASCII sparkline from RTT history.
-    e.g.  ▁▂▃▄▅▆▇█
-    """
     bars = " ▁▂▃▄▅▆▇█"
     if not history:
         return "─" * width
@@ -72,13 +54,11 @@ def make_mini_graph(history, width=10):
         idx = int((v / max_v) * (len(bars) - 1))
         graph += bars[idx]
 
-    # Pad left if fewer than width samples
     graph = graph.rjust(width, "─")
     return graph
 
 
 def build_table(device_stats_map, pulse_count, elapsed):
-    """Build the Rich table from current device stats."""
 
     table = Table(
         title=None,
@@ -104,23 +84,17 @@ def build_table(device_stats_map, pulse_count, elapsed):
         loss = stats.loss_percent
         color = rtt_color(rtt)
 
-        # RTT cell
         rtt_text = Text(f"{rtt:.1f}" if rtt else "—", style=color)
 
-        # Avg RTT
         avg_text = Text(f"{avg:.1f}" if avg else "—", style=rtt_color(avg))
 
-        # Jitter
         jitter_text = Text(f"{jitter:.1f}", style=jitter_color(jitter))
 
-        # Loss
         loss_style = "bright_red" if loss > 10 else ("yellow" if loss > 0 else "dim green")
         loss_text = Text(f"{loss}%", style=loss_style)
 
-        # Quality badge
         quality_text = Text(rtt_label(rtt), style=color)
 
-        # Sparkline trend
         trend = make_mini_graph(stats.rtt_history)
         trend_text = Text(trend, style=color)
 
@@ -139,7 +113,6 @@ def build_table(device_stats_map, pulse_count, elapsed):
 
 
 def build_legend():
-    """Small color legend panel."""
     t = Text()
     t.append("● EXCELLENT ", style="bright_green bold")
     t.append("<20ms   ", style="dim")
@@ -163,28 +136,20 @@ def build_header(pulse_count, device_count, elapsed):
 
 
 def run_dashboard(device_stats_map, probe_fn, interval=2.0):
-    """
-    Main loop: probe all devices every `interval` seconds,
-    redraw the table live.
-
-    probe_fn: callable(device_stats_map) — updates stats in-place
-    """
     pulse_count = 0
     start_time = time.time()
 
     with Live(console=console, refresh_per_second=2, screen=False) as live:
         while True:
-            # Run one probe cycle
             probe_fn(device_stats_map)
             pulse_count += 1
             elapsed = time.time() - start_time
 
-            # Build display
             header = build_header(pulse_count, len(device_stats_map), elapsed)
             table = build_table(device_stats_map, pulse_count, elapsed)
             legend = build_legend()
 
-            live.update(Columns([header], expand=True))  # quick flash
+            live.update(Columns([header], expand=True))  
             live.update(
                 Panel(
                     table,

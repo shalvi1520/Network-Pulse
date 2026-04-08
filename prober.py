@@ -13,10 +13,8 @@ import time
 import statistics
 from collections import deque
 
-# How many past RTT samples to keep per device for jitter calculation
 JITTER_WINDOW = 10
 
-# Timeout in seconds waiting for ICMP reply
 PROBE_TIMEOUT = 1.5
 
 
@@ -26,11 +24,11 @@ class DeviceStats:
     def __init__(self, ip, mac="unknown"):
         self.ip = ip
         self.mac = mac
-        self.rtt_history = deque(maxlen=JITTER_WINDOW)  # last 10 RTTs
-        self.last_rtt = None       # most recent RTT in ms
-        self.jitter = 0.0          # current jitter in ms
-        self.status = "unknown"    # "online" / "timeout" / "unknown"
-        self.packet_loss = 0       # count of timeouts
+        self.rtt_history = deque(maxlen=JITTER_WINDOW)  
+        self.last_rtt = None       
+        self.jitter = 0.0         
+        self.status = "unknown"    
+        self.packet_loss = 0       
         self.total_probes = 0
 
     def record(self, rtt_ms):
@@ -40,7 +38,6 @@ class DeviceStats:
         self.status = "online"
         self.total_probes += 1
 
-        # Jitter = std deviation of RTT samples (need at least 2)
         if len(self.rtt_history) >= 2:
             self.jitter = statistics.stdev(self.rtt_history)
         else:
@@ -73,26 +70,22 @@ def probe_host(ip):
     This is the CORE of the project — we're manually building:
         IP Header → ICMP Header → (no payload needed)
     """
-    # Build packet: IP layer / ICMP Echo Request
     packet = IP(dst=ip) / ICMP()
 
-    # Record send time
     t_start = time.time()
 
-    # sr1 = send 1 packet, receive 1 reply (or timeout)
     reply = sr1(packet, timeout=PROBE_TIMEOUT, verbose=0)
 
     t_end = time.time()
 
     if reply is None:
-        return None  # Timeout — no reply received
+        return None  
 
-    # Check it's actually an ICMP Echo Reply (type=0)
     if reply.haslayer(ICMP) and reply[ICMP].type == 0:
-        rtt_ms = (t_end - t_start) * 1000  # convert to milliseconds
+        rtt_ms = (t_end - t_start) * 1000  
         return round(rtt_ms, 2)
 
-    return None  # Got something but not a proper echo reply
+    return None  
 
 
 def probe_all(device_stats_map):
@@ -111,7 +104,6 @@ def probe_all(device_stats_map):
 
 
 if __name__ == "__main__":
-    # Quick test: probe a single host
     test_ip = "8.8.8.8"
     print(f"Probing {test_ip}...")
     rtt = probe_host(test_ip)

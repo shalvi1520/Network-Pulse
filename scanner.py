@@ -6,13 +6,26 @@ This tells us WHO is on the network (IP + MAC address).
 
 from scapy.all import ARP, Ether, srp
 import socket
+import subprocess
+import re
 
 
 def get_local_subnet():
-    """Auto-detect your machine's subnet (e.g. 192.168.1.0/24)"""
-    hostname = socket.gethostname()
-    local_ip = socket.gethostbyname(hostname)
-    # Build a /24 subnet from local IP
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        local_ip = s.getsockname()[0]
+        s.close()
+    except Exception:
+        try:
+            output = subprocess.check_output(["ifconfig"], text=True)
+            matches = re.findall(r"inet (\d+\.\d+\.\d+\.\d+)", output)
+            local_ip = next((ip for ip in matches if not ip.startswith("127.")), None)
+            if not local_ip:
+                raise RuntimeError("Could not determine local IP")
+        except Exception as e:
+            raise RuntimeError(f"Failed to detect local IP: {e}")
+
     parts = local_ip.split(".")
     subnet = f"{parts[0]}.{parts[1]}.{parts[2]}.0/24"
     return subnet, local_ip
@@ -28,12 +41,10 @@ def scan_network(subnet=None):
 
     print(f"[*] Scanning subnet: {subnet}")
 
-    # Craft ARP request wrapped in Ethernet broadcast frame
     arp_request = ARP(pdst=subnet)
     broadcast = Ether(dst="ff:ff:ff:ff:ff:ff")
     packet = broadcast / arp_request
 
-    # Send and receive — timeout=2s, verbose=0 means silent
     answered, _ = srp(packet, timeout=2, verbose=0)
 
     devices = []
